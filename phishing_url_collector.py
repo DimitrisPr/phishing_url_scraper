@@ -1,73 +1,82 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-from difflib import SequenceMatcher
-from io import StringIO
-import requests
-import zlib
-import json
-import re
+import string
+import time
+import threading
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+options = Options()
+options.add_argument('--headless')
+driver = webdriver.Chrome('./chromedriver', chrome_options=options)
 
-PHISHTANK_API_KEY = 'insert_api_key_here'
-def download_phishing_data():
-    # Array containing the links of the phishing feed sources
-    feed_sources = ['https://openphish.com/feed.txt',
-                    'https://raw.githubusercontent.com/mitchellkrogza/Phishing.Database/master/phishing-links-ACTIVE.txt'
-                    , 'http://data.phishtank.com/data/'
-                    + PHISHTANK_API_KEY + '/online-valid.json.gz']
+print("===============================")
+print("Machine Reset Cancellation Bot.")
+print("===============================")
 
-    phishing_URLs = []
-    for feed in feed_sources:
-        response = requests.get(feed)
-        if 'json.gz' in feed:
-            decompressed_data = zlib.decompress(response.content, 16
-                    + zlib.MAX_WBITS)
-            json_file = json.loads(decompressed_data.decode('utf-8'))
-            for json_object in json_file:
-                url = json_object['url']
-                phishing_URLs.append(url)
-        else:
-            url = response.text.split('\n')
-            phishing_URLs.extend(url)
+#--------Change these-------#
 
-    return phishing_URLs
+username = 'your_username'
+password = 'your_password'
+machine_name = "machine_name"
+
+#----------------------------#
+
+login_url = "https://www.hackthebox.eu/login"
 
 
-def clear_duplicates(phishing_URLs):
-    ''' Clears all links
-        with the same domain 
-    '''
-    
-    no_duplicates = []  # Contains links with unique domains
-    seen_domains = []
-    for URL in phishing_URLs:
-        domain = find_domain(URL)
-        if domain not in seen_domains:
-            no_duplicates.append(URL)
-            seen_domains.append(domain)
-    return no_duplicates
+def main():
+    print("Logging in...")
+    driver.get(login_url)
+    login()
 
 
-# Extracts the domain part of the url
+def login():
 
-def find_domain(link):
+    # login & redirect to shoutbox
+    login_form = driver.find_element_by_name('email')
+    login_form.send_keys(username)
+    login_form = driver.find_element_by_name('password')
+    login_form.send_keys(password)
+    login_form.submit()
 
-    # Replace common url parts
-    link = re.sub('|'.join(['www.', 'https://', \
-                            'http://', '\n']), '',link)
-    domain = re.search('[^/]*', link).group(0)
-    return domain
+    driver.get("https://www.hackthebox.eu/home/shoutbox")
+
+    print("\n########################################################")
+    print("Started monitoring resets for machine: '" + machine_name + "'")
+    print("If a reset occurs it will be automatically cancelled and you will be notified. \nGood Luck!")
+    print("########################################################\n")
+
+    time.sleep(5)  # make sure page is loaded
+
+    # Every 1 second, check if a reset request is issued on machine of interest.
+    # if it is, cancel it
+
+    while True:
+        detect_resets()
+        time.sleep(1)
 
 
-def save_data(phishing_URLs):
-    
-    with open('data/new_phishing_urls.dat', 'a+') as f:
-        for url in phishing_URLs:
-            f.write(url + '\n')
-    f.close()
+def detect_resets():
+    message = driver.find_elements_by_css_selector(
+        "div[class=bs-example] p")[-1].text
+
+    if "requested a reset on " + machine_name in message and "/cancel" in message:
+        cancellation_id = extract_id_from_message(message)
+        print("Detected reset on " + machine_name +
+              ", with id: " + cancellation_id)
+        cancel_reset(cancellation_id)
 
 
-if __name__ == '__main__':
+def extract_id_from_message(message):
+    return message[message.index("/cancel") + len("/cancel"):].replace(" ", "")[0:6]
 
-    phishing_URLs = download_phishing_data()
-    phishing_URLs = clear_duplicates(phishing_URLs)
-    save_data(phishing_URLs)
+
+def cancel_reset(cancellation_id):
+
+    print("Cancelling reset...")
+    chat_input = driver.find_element_by_class_name('emojionearea-editor')
+    chat_input.send_keys("/cancel " + cancellation_id)
+    button = driver.find_elements_by_css_selector(
+        "div[class=panel-footer] button")[0].click()
+    print("Reset Succesfully Canceled!")
+
+if __name__ == "__main__":
+    main()
